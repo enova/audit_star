@@ -1,0 +1,11 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "username": "postgres",
+  "password": "",
+  "database": "audit_star",
+  "migration-folder": "db/migrate",
+  "column-type": "string",
+  "format": "datetime",
+  "seed-tables": []
+}

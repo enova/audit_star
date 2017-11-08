@@ -1,0 +1,36 @@
+# this is an example audit.yml file
+
+# database config information
+# host: database host name
+# post: database port number; postgres default is 5432
+# db_name: database_name (name of the db to audit)
+# username: database username used to connect
+# password: databsase password used to connect
+# ssl_mode: databsse ssl mode
+
+# audit star config information
+# excluded_tables:
+#   - exclude this_schema.this_table
+# excluded_schemas:
+#   - exclude_this_schema
+# owner: app__owner (only audit tables owned by this user, if not specified will audit *every* table it can)
+# log_client_query: false (toggle logging of query that caused the change)
+# security: definer/invoker (security level of audit function - usually definer on release to avoid race conditions with defining permissions)
+
+# database config information
+host: localhost
+port: 5432
+db_name: audit_star
+username: postgres
+password:
+ssl_mode: disable
+
+
+# audit star config information
+excluded_tables:
+  - teststar.table_skipme
+excluded_schemas:
+  - schema_to_exclude
+security: definer
+log_client_query: false
+owner: test__owner

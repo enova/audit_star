@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	yaml "gopkg.in/yaml.v2"
-
-	_ "github.com/lib/pq"
 )
 
 // Config ...
@@ -36,6 +34,7 @@ type Config struct {
 
 var cfgPath = flag.String("cfg", "audit.yml", "Path to config file used by audit_star.")
 
+// ParseFlags parses command line flags for configration from command line input
 func ParseFlags(c *Config) {
 	flag.Parse()
 	c.CfgPath = *cfgPath

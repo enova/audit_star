@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -eu
+
+if ! which go >/dev/null 2>&1; then
+  echo "You need to install go."
+  echo "Use brew or apt-get or whatever."
+  exit 1
+fi
+
+if [[ -z "$GOPATH" ]]; then
+  echo "Your \$GOPATH is not set, which is required for go to function."
+  echo "Add 'export GOPATH=~/go' to your shell startup scripts."
+  exit 1
+fi
+
+set -x
+
+go get -t -d ./...
+go get -u github.com/golang/lint/golint
+go get -u github.com/rnubel/pgmgr
+
+createuser --superuser audit_star || createuser -U postgres --superuser audit_star || true
+pgmgr db create || true
+pgmgr db migrate

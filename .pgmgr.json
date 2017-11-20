@@ -1,7 +1,7 @@
 {
   "host": "localhost",
   "port": 5432,
-  "username": "postgres",
+  "username": "audit_star",
   "password": "",
   "database": "audit_star",
   "migration-folder": "db/migrate",

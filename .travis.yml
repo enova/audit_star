@@ -39,6 +39,4 @@ before_script:
   - export PGMGR_DATABASE=audit_star
 
 script:
-  - make test-setup
-  - make testDB-setup
-  - make test
+  - bash bin/test.sh

@@ -1,4 +1,4 @@
-# Audit Star[![Build Status](https://travis-ci.org/enova/audit_star.svg?branch=master)](https://travis-ci.org/enova/audit_star)
+# Audit Star [![Build Status](https://travis-ci.org/enova/audit_star.svg?branch=master)](https://travis-ci.org/enova/audit_star)
 
 The purpose of audit_star is to maintain a history of all of the changes that happen to a database, and to store the history of those changes within the database itself.  Additional documentation is provided by clicking the docs badge above.
 
@@ -28,7 +28,7 @@ Contribution to improve this project in any way are always welcome. Steps:
 * [Sri Rangarajan](https://github.com/Slania)
 * [Sam Elston]
 * [Kelmer Perez]
-* Youssef Kaiboussi(https://github.com/YoussefKaib)
+* [Youssef Kaiboussi](https://github.com/YoussefKaib)
 
 ## License
 

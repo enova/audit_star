@@ -3,8 +3,8 @@ dist: precise
 
 language: go
 go:
-  - 1.7
-  - tip
+  - 1.9
+  - master
 
 matrix:
   allow_failures:

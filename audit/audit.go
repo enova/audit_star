@@ -277,7 +277,7 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 		return err
 	}
 
-	err = addColToTable(auditSchema, table+"_audit", "sparse_time", "timestamp", db)
+	err = addColToTable(auditSchema, table+"_audit", "sparse_time", "timestamptz", db)
 	if err != nil {
 		return err
 	}
@@ -402,8 +402,8 @@ func createAuditAuditingTable(db *sql.DB) error {
 		audit_history_id SERIAL PRIMARY KEY,
 		schema_name NAME NOT NULL,
 		table_name NAME NOT NULL,
-		start_time TIMESTAMP NOT NULL,
-		end_time TIMESTAMP,
+		start_time TIMESTAMPTZ NOT NULL,
+		end_time TIMESTAMPTZ,
 		CONSTRAINT uniq UNIQUE(schema_name, table_name, start_time)
 	)`
 
@@ -544,7 +544,7 @@ func createAuditTable(auditSchema, table, jsonType string, db *sql.DB) error {
 
 	query := `CREATE TABLE IF NOT EXISTS "{{.auditSchema}}"."{{.table}}_audit"(
 			"{{.table}}_audit_id" BIGSERIAL PRIMARY KEY,
-			changed_at TIMESTAMP NOT NULL,
+			changed_at TIMESTAMPTZ NOT NULL,
 			db_user VARCHAR(50) NOT NULL,
 			client_addr INET,
 			client_port INTEGER,
@@ -639,7 +639,7 @@ func createAuditFunction(schema, table, jsonType, security string, logging bool,
 		DECLARE
 			value_row HSTORE = hstore(NULL);
 			new_row HSTORE = hstore(NULL);
-			sparse_time TIMESTAMP WITHOUT TIME ZONE = NULL;
+			sparse_time TIMESTAMPTZ = NULL;
 			audit_id BIGINT;
 		BEGIN
 			SELECT nextval('{{.sequenceName}}') INTO audit_id;

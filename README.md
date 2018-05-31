@@ -1,4 +1,4 @@
-# Audit Star [![Build Status](https://travis-ci.org/enova/audit_star.svg?branch=master)](https://travis-ci.org/enova/audit_star)
+# Audit Star [![Build Status](https://travis-ci.org/enova/audit_star.svg?branch=master)](https://travis-ci.org/enova/audit_star) [![Documentation](https://img.shields.io/badge/godoc-reference-5272B4.svg?style=flat-square)](https://godoc.org/github.com/enova/audit_star)
 
 The purpose of audit_star is to maintain a history of all of the changes that happen to a database, and to store the history of those changes within the database itself.  Additional documentation is provided by clicking the docs badge above.
 

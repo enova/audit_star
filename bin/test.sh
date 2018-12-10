@@ -18,7 +18,7 @@ setup() {
 
 install_tools() {
   go get \
-    github.com/golang/lint/golint \
+    golang.org/x/lint/golint \
     github.com/mattn/goveralls
 }
 

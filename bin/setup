@@ -17,7 +17,7 @@ fi
 set -x
 
 go get -t -d ./...
-go get -u github.com/golang/lint/golint
+go get -u golang.org/x/lint/golint
 go get -u github.com/rnubel/pgmgr
 
 createuser --superuser audit_star || createuser -U postgres --superuser audit_star || true

@@ -1,2 +1,3 @@
 .cover
 /site
+/docker-entrypoint-initdb.d/*.sql

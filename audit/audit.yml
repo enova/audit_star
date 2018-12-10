@@ -32,6 +32,10 @@ excluded_tables:
   - teststar.table_skipme
 excluded_schemas:
   - schema_skipme
+# included_tables: # Uncomment to incrementally add new tables. Excluded tables/excluded schemas will be ignored.
+#   - schema_name.table_name
+#   - schema_name.table_name2
+#   - schema_name2.table_name2
 security: definer
 log_client_query: false
 owner: test__owner

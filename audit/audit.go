@@ -7,10 +7,11 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"log"
+	"os"
 	"strings"
+	"text/template"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -26,13 +27,17 @@ type Config struct {
 	SSLMode         string   `yaml:"ssl_mode"`
 	ExcludedTables  []string `yaml:"excluded_tables"`
 	ExcludedSchemas []string `yaml:"excluded_schemas"`
+	IncludedTables  []string `yaml:"included_tables"`
+	IncludedSchemas []string `yaml:"included_schemas"`
 	Security        string   `yaml:"security"`
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
+	ViewsOnly       bool     `yaml:"views_only"`
 	JSONType        string
 }
 
 var cfgPath = flag.String("cfg", "audit.yml", "Path to config file used by audit_star.")
+var viewsOnly = flag.Bool("views-only", false, "Only create views.")
 
 // ParseFlags parses command line flags for configration from command line input
 func ParseFlags(c *Config) {
@@ -85,6 +90,8 @@ func RunAll(db *sql.DB, config *Config) error {
 		return err
 	}
 
+	var filteredTables map[string]bool
+
 	// use the results from above to get a list of all of the tables in the db
 	allTables, err := getAllTables(db, config, allSchemas)
 	if err != nil {
@@ -92,7 +99,7 @@ func RunAll(db *sql.DB, config *Config) error {
 	}
 
 	// exclude tables from audit based on ExcludedSchemas in config
-	filteredTables := filterSchemas(allTables, config)
+	filteredTables = filterSchemas(allTables, config)
 
 	// exclude tables from audit based on ExcludedTables in config
 	filteredTables = filterTables(filteredTables, config)
@@ -146,10 +153,6 @@ func getAllSchemas(db *sql.DB, c *Config) ([]string, error) {
 	AND schema_name NOT LIKE 'pg\_%'
 	AND schema_name NOT IN ('public', 'information_schema')`
 
-	if c.Owner != "" {
-		//query += " AND schema_owner = '" + c.Owner + "'"
-	}
-
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -202,6 +205,7 @@ func tablesForSchema(db *sql.DB, c *Config, schema string) ([]string, error) {
 		query += " AND rolname = '" + c.Owner + "'"
 	}
 
+	printQueryIfDebug(query)
 	rows, err := db.Query(query, schema)
 	if err != nil {
 		return nil, err
@@ -223,28 +227,80 @@ func tablesForSchema(db *sql.DB, c *Config, schema string) ([]string, error) {
 
 // turn off auditting on specific schemas based on config
 func filterSchemas(tables map[string]bool, c *Config) map[string]bool {
-	for _, schema := range c.ExcludedSchemas {
-		for table := range tables {
-			if strings.HasPrefix(table, schema) {
-				tables[table] = false
-			}
+	for table := range tables {
+		if !isIncludedSchema(table, c) {
+			tables[table] = false
+		}
+
+		if isExcludedSchema(table, c) {
+			tables[table] = false
 		}
 	}
 
 	return tables
 }
 
+func isIncludedSchema(table string, c *Config) bool {
+	if len(c.IncludedSchemas) == 0 {
+		return true
+	}
+
+	for _, schema := range c.IncludedSchemas {
+		if strings.HasPrefix(table, schema) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isExcludedSchema(table string, c *Config) bool {
+	for _, schema := range c.ExcludedSchemas {
+		if strings.HasPrefix(table, schema) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // turn off auditting on specific tables based on config
 func filterTables(tables map[string]bool, c *Config) map[string]bool {
-	for _, xTable := range c.ExcludedTables {
-		for table := range tables {
-			if xTable == table {
-				tables[table] = false
-			}
+	for table := range tables {
+		if !isIncludedTable(table, c) {
+			tables[table] = false
+		}
+
+		if isExcludedTable(table, c) {
+			tables[table] = false
 		}
 	}
 
 	return tables
+}
+
+func isIncludedTable(table string, c *Config) bool {
+	if len(c.IncludedTables) == 0 {
+		return true
+	}
+
+	for _, t := range c.IncludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isExcludedTable(table string, c *Config) bool {
+	for _, t := range c.ExcludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
 }
 
 // loops over each table in the db and sets up auditting for that table
@@ -253,10 +309,16 @@ func setAuditing(tables map[string]bool, c *Config, db *sql.DB) error {
 		schemaTable := strings.Split(tbl, ".")
 		schema := schemaTable[0]
 		table := schemaTable[1]
-
-		err := audit(schema, table, trigger, c, db)
-		if err != nil {
-			return err
+		if *viewsOnly {
+			err := auditViewsOnly(schema, table, trigger, c, db)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := audit(schema, table, trigger, c, db)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -337,8 +399,46 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 	return nil
 }
 
+// sets up audting for a given table, as configured in the config file
+func auditViewsOnly(schema, table string, trigger bool, c *Config, db *sql.DB) error {
+	err := addColToTable(schema, table, "updated_by", "varchar(50)", db)
+	if err != nil {
+		return err
+	}
+
+	err = createViewAuditSchema(schema, db)
+	if err != nil {
+		return err
+	}
+
+	tableCols, err := tableColumns(schema, table, db)
+	if err != nil {
+		return err
+	}
+
+	primaryKeyCol := getPrimaryKeyCol(tableCols)
+
+	err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // helper method to DRY up the code that parses a query template using data
 func mustParseQuery(query string, data map[string]interface{}) string {
+	printQueryIfDebug(query)
 	t := template.Must(template.New("template").Parse(query))
 	buf := &bytes.Buffer{}
 	if err := t.Execute(buf, data); err != nil {
@@ -357,12 +457,12 @@ func ensureSettingExists(setting string, db *sql.DB) error {
 			BEGIN
 				PERFORM current_setting('%s');
 			EXCEPTION WHEN undefined_object THEN
-				RAISE EXCEPTION 'SQLERRM: %, please contact your friendly, neighbourhood DBA.', SQLERRM;
+				RAISE EXCEPTION 'SQLERRM: %%, please contact your friendly, neighbourhood DBA.', SQLERRM;
 			END;
 		END;
 		$$
 		LANGUAGE plpgsql;`
-
+	printQueryIfDebug(fmt.Sprintf(query, setting))
 	_, err := db.Exec(fmt.Sprintf(query, setting))
 	if err != nil {
 		return err
@@ -387,7 +487,7 @@ func createAuditSchema(db *sql.DB) error {
 		END;
 		$$
 		LANGUAGE plpgsql;`
-
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -406,7 +506,7 @@ func createAuditAuditingTable(db *sql.DB) error {
 		end_time TIMESTAMPTZ,
 		CONSTRAINT uniq UNIQUE(schema_name, table_name, start_time)
 	)`
-
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -426,7 +526,7 @@ func createNoDMLAuditFunction(db *sql.DB) error {
 		END;
 		$$
 		LANGUAGE plpgsql;`
-
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -465,23 +565,6 @@ func addColToTable(schema, table, column, colType string, db *sql.DB) error {
 	return nil
 }
 
-// helper function used below to make sure we don't create audit schemas
-// for excluded schemas
-func contains(a []string, s string) bool {
-	fmt.Println("inside contains function")
-	fmt.Println("a:", a)
-	fmt.Println("s:", s)
-	for index, item := range a {
-		fmt.Println("index:", index)
-		fmt.Println("item:", item)
-		if item == s {
-			return true
-		}
-	}
-
-	return false
-}
-
 // creates _audit_raw schemas for all non-excluded schemas
 func createRawAuditSchemas(db *sql.DB, c *Config, schemas []string) error {
 	for _, schema := range schemas {
@@ -498,7 +581,7 @@ func createRawAuditSchemas(db *sql.DB, c *Config, schemas []string) error {
 			END;
 			$$
 			LANGUAGE plpgsql;`
-
+		printQueryIfDebug(fmt.Sprintf(query, schema, schema))
 		_, err := db.Exec(fmt.Sprintf(query, schema, schema))
 		if err != nil {
 			return err
@@ -516,7 +599,7 @@ func getSupportedJSONType(db *sql.DB) (string, error) {
 		FROM pg_type
 		WHERE typname LIKE 'jsonb'
 	) AS exists`
-
+	printQueryIfDebug(query)
 	row := db.QueryRow(query)
 
 	var jsonBExists bool
@@ -628,6 +711,7 @@ func createAuditFunction(schema, table, jsonType, security string, logging bool,
 
 	queryString := fmt.Sprintf(query, schema, table)
 	var sequenceName string
+	printQueryIfDebug(queryString)
 	err := db.QueryRow(queryString).Scan(&sequenceName)
 	if err != nil {
 		return err
@@ -725,7 +809,7 @@ func createAuditTrigger(schema, table string, enabled bool, db *sql.DB) error {
 		WHERE i.indisprimary
 		AND nspname = '%s'
 		AND relname = '%s'`
-
+	printQueryIfDebug(fmt.Sprintf(query, schema, table))
 	rows, err := db.Query(fmt.Sprintf(query, schema, table))
 	if err != nil {
 		return err
@@ -1147,4 +1231,10 @@ func createAuditCompareView(schema, table string, tableCols []map[string]string,
 
 	log.Printf("created view %s_audit.%s_audit_compare\n", schema, table)
 	return nil
+}
+
+func printQueryIfDebug(query string) {
+	if os.Getenv("QUERY_DEBUG") == "1" {
+		fmt.Println(query)
+	}
 }

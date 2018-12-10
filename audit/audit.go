@@ -26,6 +26,8 @@ type Config struct {
 	SSLMode         string   `yaml:"ssl_mode"`
 	ExcludedTables  []string `yaml:"excluded_tables"`
 	ExcludedSchemas []string `yaml:"excluded_schemas"`
+	IncludedTables  []string `yaml:"included_tables"`
+	IncludedSchemas []string `yaml:"included_schemas"`
 	Security        string   `yaml:"security"`
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
@@ -223,28 +225,80 @@ func tablesForSchema(db *sql.DB, c *Config, schema string) ([]string, error) {
 
 // turn off auditting on specific schemas based on config
 func filterSchemas(tables map[string]bool, c *Config) map[string]bool {
-	for _, schema := range c.ExcludedSchemas {
-		for table := range tables {
-			if strings.HasPrefix(table, schema) {
-				tables[table] = false
-			}
+	for table := range tables {
+		if !isIncludedSchema(table, c) {
+			tables[table] = false
+		}
+
+		if isExcludedSchema(table, c) {
+			tables[table] = false
 		}
 	}
 
 	return tables
 }
 
+func isIncludedSchema(table string, c *Config) bool {
+	if len(c.IncludedSchemas) == 0 {
+		return true
+	}
+
+	for _, schema := range c.IncludedSchemas {
+		if strings.HasPrefix(table, schema) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isExcludedSchema(table string, c *Config) bool {
+	for _, schema := range c.ExcludedSchemas {
+		if strings.HasPrefix(table, schema) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // turn off auditting on specific tables based on config
 func filterTables(tables map[string]bool, c *Config) map[string]bool {
-	for _, xTable := range c.ExcludedTables {
-		for table := range tables {
-			if xTable == table {
-				tables[table] = false
-			}
+	for table := range tables {
+		if !isIncludedTable(table, c) {
+			tables[table] = false
+		}
+
+		if isExcludedTable(table, c) {
+			tables[table] = false
 		}
 	}
 
 	return tables
+}
+
+func isIncludedTable(table string, c *Config) bool {
+	if len(c.IncludedTables) == 0 {
+		return true
+	}
+
+	for _, t := range c.IncludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isExcludedTable(table string, c *Config) bool {
+	for _, t := range c.ExcludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
 }
 
 // loops over each table in the db and sets up auditting for that table

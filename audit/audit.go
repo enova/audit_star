@@ -266,13 +266,13 @@ func setAuditing(tables map[string]bool, c *Config, db *sql.DB) error {
 // sets up audting for a given table, as configured in the config file
 // func audit(schema, table, security string, logging, trigger bool, db *sql.DB) error {
 func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
-	err := addColToTable(schema, table, "updated_by", "varchar(50)", db)
-	if err != nil {
-		return err
-	}
+	//err := addColToTable(schema, table, "updated_by", "varchar(50)", db)
+	//if err != nil {
+	//	return err
+	//}
 
 	auditSchema := schema + "_audit_raw"
-	err = createAuditTable(auditSchema, table, c.JSONType, db)
+	err := createAuditTable(auditSchema, table, c.JSONType, db)
 	if err != nil {
 		return err
 	}
@@ -307,32 +307,32 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 		return err
 	}
 
-	err = createViewAuditSchema(schema, db)
-	if err != nil {
-		return err
-	}
+	//err = createViewAuditSchema(schema, db)
+	//if err != nil {
+	//	return err
+	//}
 
-	tableCols, err := tableColumns(schema, table, db)
-	if err != nil {
-		return err
-	}
+	//tableCols, err := tableColumns(schema, table, db)
+	//if err != nil {
+	//	return err
+	//}
 
-	primaryKeyCol := getPrimaryKeyCol(tableCols)
+	//primaryKeyCol := getPrimaryKeyCol(tableCols)
 
-	err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
-	if err != nil {
-		return err
-	}
+	//err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
+	//if err != nil {
+	//	return err
+	//}
 
-	err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
-	if err != nil {
-		return err
-	}
+	//err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
+	//if err != nil {
+	//	return err
+	//}
 
-	err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
-	if err != nil {
-		return err
-	}
+	//err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
+	//if err != nil {
+	//	return err
+	//}
 
 	return nil
 }
@@ -598,8 +598,7 @@ func createAuditIndex(auditSchema, table string, db *sql.DB) error {
 					AND n.nspname = '{{.auditSchema}}'
 			) THEN
 
-				CREATE INDEX "index_{{.table}}_on_primary_key" ON "{{.auditSchema}}"."{{.table}}_audit"(primary_key);
-				CREATE INDEX "index_{{.table}}_on_sparse_time" ON "{{.auditSchema}}"."{{.table}}_audit"(sparse_time) WHERE sparse_time IS NOT NULL;
+				CREATE INDEX "{{.table}}_index_on_sparse_time" ON "{{.auditSchema}}"."{{.table}}_audit"(sparse_time) WHERE sparse_time IS NOT NULL;
 
 			END IF;
 		END;

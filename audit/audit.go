@@ -7,10 +7,11 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"log"
+	"os"
 	"strings"
+	"text/template"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -202,7 +203,7 @@ func tablesForSchema(db *sql.DB, c *Config, schema string) ([]string, error) {
 		query += " AND rolname = '" + c.Owner + "'"
 	}
 
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	rows, err := db.Query(query, schema)
 	if err != nil {
 		return nil, err
@@ -340,7 +341,7 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 
 // helper method to DRY up the code that parses a query template using data
 func mustParseQuery(query string, data map[string]interface{}) string {
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	t := template.Must(template.New("template").Parse(query))
 	buf := &bytes.Buffer{}
 	if err := t.Execute(buf, data); err != nil {
@@ -364,7 +365,7 @@ func ensureSettingExists(setting string, db *sql.DB) error {
 		END;
 		$$
 		LANGUAGE plpgsql;`
-	fmt.Println(fmt.Sprintf(query, setting))
+	printQueryIfDebug(fmt.Sprintf(query, setting))
 	_, err := db.Exec(fmt.Sprintf(query, setting))
 	if err != nil {
 		return err
@@ -389,7 +390,7 @@ func createAuditSchema(db *sql.DB) error {
 		END;
 		$$
 		LANGUAGE plpgsql;`
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -408,7 +409,7 @@ func createAuditAuditingTable(db *sql.DB) error {
 		end_time TIMESTAMPTZ,
 		CONSTRAINT uniq UNIQUE(schema_name, table_name, start_time)
 	)`
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -428,7 +429,7 @@ func createNoDMLAuditFunction(db *sql.DB) error {
 		END;
 		$$
 		LANGUAGE plpgsql;`
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	_, err := db.Exec(query)
 	if err != nil {
 		return err
@@ -500,7 +501,7 @@ func createRawAuditSchemas(db *sql.DB, c *Config, schemas []string) error {
 			END;
 			$$
 			LANGUAGE plpgsql;`
-		fmt.Println(fmt.Sprintf(query, schema, schema))
+		printQueryIfDebug(fmt.Sprintf(query, schema, schema))
 		_, err := db.Exec(fmt.Sprintf(query, schema, schema))
 		if err != nil {
 			return err
@@ -518,7 +519,7 @@ func getSupportedJSONType(db *sql.DB) (string, error) {
 		FROM pg_type
 		WHERE typname LIKE 'jsonb'
 	) AS exists`
-	fmt.Println(query)
+	printQueryIfDebug(query)
 	row := db.QueryRow(query)
 
 	var jsonBExists bool
@@ -630,7 +631,7 @@ func createAuditFunction(schema, table, jsonType, security string, logging bool,
 
 	queryString := fmt.Sprintf(query, schema, table)
 	var sequenceName string
-	fmt.Println(queryString)
+	printQueryIfDebug(queryString)
 	err := db.QueryRow(queryString).Scan(&sequenceName)
 	if err != nil {
 		return err
@@ -728,7 +729,7 @@ func createAuditTrigger(schema, table string, enabled bool, db *sql.DB) error {
 		WHERE i.indisprimary
 		AND nspname = '%s'
 		AND relname = '%s'`
-	fmt.Println(fmt.Sprintf(query, schema, table))
+	printQueryIfDebug(fmt.Sprintf(query, schema, table))
 	rows, err := db.Query(fmt.Sprintf(query, schema, table))
 	if err != nil {
 		return err
@@ -1150,4 +1151,10 @@ func createAuditCompareView(schema, table string, tableCols []map[string]string,
 
 	log.Printf("created view %s_audit.%s_audit_compare\n", schema, table)
 	return nil
+}
+
+func printQueryIfDebug(query string) {
+	if os.Getenv("QUERY_DEBUG") == "1" {
+		fmt.Println(query)
+	}
 }

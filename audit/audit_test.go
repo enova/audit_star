@@ -2,7 +2,6 @@ package audit
 
 import (
 	"database/sql"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -75,7 +74,6 @@ func TestTableExclusions(t *testing.T) {
 
 	db := setupDB(&c)
 	var disabledCount int
-	fmt.Println(query)
 	scanErr := db.QueryRow(query).Scan(&disabledCount)
 	assert.NoError(t, scanErr)
 

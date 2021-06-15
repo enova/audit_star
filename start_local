@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Run this from the root of this repo. 
+# Remember to place the dump.sql file in the /docker-entrypoint-initdb.d directory.
+# A dump can be created using the following command: 
+## pg_dump --no-owner --no-acl --schema-only -h snapshot-hostname-goes-here.enova.com -p 5432 -U username databasename > dump.sql
+
+# Build our customized local Postgres image if it does not exist on the system
+docker images | grep auditstar_pg || docker build -t auditstar_pg .
+
+# Kill running container if necessary and launch a new one
+docker kill auditstar_pg
+docker rm auditstar_pg
+docker run -d --name auditstar_pg -e POSTGRES_DB="audit_star" -e POSTGRES_HOST_AUTH_METHOD="trust" -v `pwd`/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d  -p 5432:5432 auditstar_pg

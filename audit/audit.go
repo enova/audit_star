@@ -30,6 +30,7 @@ type Config struct {
 	Security        string   `yaml:"security"`
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
+	ViewsOnly       bool     `yaml:"views_only"`
 	JSONType        string
 }
 
@@ -256,9 +257,16 @@ func setAuditing(tables map[string]bool, c *Config, db *sql.DB) error {
 		schema := schemaTable[0]
 		table := schemaTable[1]
 
-		err := audit(schema, table, trigger, c, db)
-		if err != nil {
-			return err
+		if c.ViewsOnly {
+			err := auditViewsOnly(schema, table, trigger, c, db)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := audit(schema, table, trigger, c, db)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -310,6 +318,38 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 	}
 
 	err = createViewAuditSchema(schema, db)
+	if err != nil {
+		return err
+	}
+
+	tableCols, err := tableColumns(schema, table, db)
+	if err != nil {
+		return err
+	}
+
+	primaryKeyCol := getPrimaryKeyCol(tableCols)
+
+	err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// sets up audting for a given table, as configured in the config file
+func auditViewsOnly(schema, table string, trigger bool, c *Config, db *sql.DB) error {
+	err := addColToTable(schema, table, "updated_by", "varchar(50)", db)
 	if err != nil {
 		return err
 	}

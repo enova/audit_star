@@ -148,10 +148,6 @@ func getAllSchemas(db *sql.DB, c *Config) ([]string, error) {
 	AND schema_name NOT LIKE 'pg\_%'
 	AND schema_name NOT IN ('public', 'information_schema')`
 
-	if c.Owner != "" {
-		//query += " AND schema_owner = '" + c.Owner + "'"
-	}
-
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -347,7 +343,7 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 	return nil
 }
 
-// sets up audting for a given table, as configured in the config file
+// sets up audting for a given table, as configured in the config file, but only run the views steps
 func auditViewsOnly(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 	err := addColToTable(schema, table, "updated_by", "varchar(50)", db)
 	if err != nil {
@@ -400,7 +396,7 @@ func ensureSettingExists(setting string, db *sql.DB) error {
 			BEGIN
 				PERFORM current_setting('%s');
 			EXCEPTION WHEN undefined_object THEN
-				RAISE EXCEPTION 'SQLERRM: %, please contact your friendly, neighbourhood DBA.', SQLERRM;
+				RAISE EXCEPTION 'SQLERRM: %%, please contact your friendly, neighbourhood DBA.', SQLERRM;
 			END;
 		END;
 		$$
@@ -506,23 +502,6 @@ func addColToTable(schema, table, column, colType string, db *sql.DB) error {
 
 	log.Printf("added %s column to %s.%s\n", column, schema, table)
 	return nil
-}
-
-// helper function used below to make sure we don't create audit schemas
-// for excluded schemas
-func contains(a []string, s string) bool {
-	fmt.Println("inside contains function")
-	fmt.Println("a:", a)
-	fmt.Println("s:", s)
-	for index, item := range a {
-		fmt.Println("index:", index)
-		fmt.Println("item:", item)
-		if item == s {
-			return true
-		}
-	}
-
-	return false
 }
 
 // creates _audit_raw schemas for all non-excluded schemas

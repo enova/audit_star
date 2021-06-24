@@ -1205,7 +1205,7 @@ func TestAuditTablesOwnerNotSpecified(t *testing.T) {
 
 	// act
 	row := tx.QueryRow(`SELECT array_agg(DISTINCT(rolname))::TEXT[] <@ ARRAY['test__owner', 'not_test__owner', 'definitely_not_test__owner', '7357:owner']
-			AND array_agg(DISTINCT(rolname))::TEXT[] @> ARRAY['test__owner', 'not_test__owner', 'definitely_not_test__owner', '7357:owner'] AS check
+			AND array_agg(DISTINCT(rolname))::TEXT[] @> ARRAY['test__owner', 'not_test__owner', 'definitely_not_test__owner', '7357:owner'] AS exists
 			FROM pg_trigger
 			JOIN pg_class ON tgrelid = pg_class.oid
 			JOIN pg_roles ON relowner = pg_roles.oid
@@ -1251,4 +1251,61 @@ func TestSchemaNotOwnedByConfigOwner(t *testing.T) {
 	scanErr := row.Scan(&c.exists)
 	assert.NoError(t, scanErr)
 	assert.Equal(t, "false", c.exists.String)
+}
+
+func TestViewsOnly(t *testing.T) {
+	// arrangement
+	var config Config
+	config.ViewsOnly = true
+	ParseFlags(&config)
+	getConfig(&config)
+
+	// Open DB
+	db = setupDB(&config)
+	defer db.Close()
+
+	// Run Audit_star
+	errRun := RunAll(db, &config)
+	assert.NoError(t, errRun)
+
+	tx, txErr := db.Begin()
+	assert.NoError(t, txErr)
+
+	defer tx.Rollback()
+
+	row := tx.QueryRow(`SELECT EXISTS (
+		SELECT table_name
+		FROM information_schema.views
+		WHERE table_name = 'table1_audit_delta'
+		AND table_schema = 'teststar_audit'
+	) AS exists`)
+
+	c := column{}
+	scanErr := row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
+
+	row = tx.QueryRow(`SELECT EXISTS (
+		SELECT table_name
+		FROM information_schema.views
+		WHERE table_name = 'table1_audit_snapshot'
+		AND table_schema = 'teststar_audit'
+	) AS exists`)
+
+	c = column{}
+	scanErr = row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
+
+	row = tx.QueryRow(`SELECT EXISTS (
+		SELECT table_name
+		FROM information_schema.views
+		WHERE table_name = 'table1_audit_compare'
+		AND table_schema = 'teststar_audit'
+	) AS exists`)
+
+	c = column{}
+	scanErr = row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
 }

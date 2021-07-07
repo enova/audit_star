@@ -1118,6 +1118,43 @@ func TestLogParsedtime(t *testing.T) {
 	assert.Equal(t, "true", c.exists.String)
 }
 
+func TestIncludedTables(t *testing.T) {
+	// arrangement
+	var config Config
+	config.IncludedSchemas = append(config.IncludedSchemas, "teststar_2")
+	config.IncludedTables = append(config.IncludedTables, "table2")
+	ParseFlags(&config)
+	getConfig(&config)
+
+	// Open DB
+	db := setupDB(&config)
+	defer db.Close()
+
+	errRun := RunAll(db, &config)
+	assert.NoError(t, errRun)
+
+	tx, txErr := db.Begin()
+	assert.NoError(t, txErr)
+
+	defer tx.Rollback()
+
+	// act
+	row := tx.QueryRow(`SELECT EXISTS (
+				SELECT 1
+				FROM pg_trigger
+				JOIN pg_class ON tgrelid = pg_class.oid
+				JOIN pg_roles ON relowner = pg_roles.oid
+				WHERE tgname = 'row_audit_star'
+				AND tgrelid = 'teststar_2.table2'::regclass
+				) AS exists`)
+
+	// assertion
+	c := column{}
+	scanErr := row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
+}
+
 func TestAuditTablesDefaultOwner(t *testing.T) {
 	// arrangement
 	tx, txErr := db.Begin()

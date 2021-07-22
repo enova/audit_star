@@ -27,11 +27,18 @@ type Config struct {
 	SSLMode         string   `yaml:"ssl_mode"`
 	ExcludedTables  []string `yaml:"excluded_tables"`
 	ExcludedSchemas []string `yaml:"excluded_schemas"`
+	IncludedTables  []string `yaml:"included_tables"`
+	IncludedSchemas []string `yaml:"included_schemas"`
 	Security        string   `yaml:"security"`
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
 	ViewsOnly       bool     `yaml:"views_only"`
 	JSONType        string
+}
+
+type tableSettings struct {
+	enableTable   bool
+	enableTrigger bool
 }
 
 var cfgPath = flag.String("cfg", "audit.yml", "Path to config file used by audit_star.")
@@ -87,6 +94,8 @@ func RunAll(db *sql.DB, config *Config) error {
 		return err
 	}
 
+	filteredScehmas := filterSchemas(allSchemas, config)
+
 	// use the results from above to get a list of all of the tables in the db
 	allTables, err := getAllTables(db, config, allSchemas)
 	if err != nil {
@@ -94,7 +103,7 @@ func RunAll(db *sql.DB, config *Config) error {
 	}
 
 	// exclude tables from audit based on ExcludedSchemas in config
-	filteredTables := filterSchemas(allTables, config)
+	filteredTables := filterTableSchemas(allTables, config)
 
 	// exclude tables from audit based on ExcludedTables in config
 	filteredTables = filterTables(filteredTables, config)
@@ -125,7 +134,7 @@ func RunAll(db *sql.DB, config *Config) error {
 		return err
 	}
 
-	err = createRawAuditSchemas(db, config, allSchemas)
+	err = createRawAuditSchemas(db, config, filteredScehmas)
 	if err != nil {
 		return err
 	}
@@ -148,10 +157,6 @@ func getAllSchemas(db *sql.DB, c *Config) ([]string, error) {
 	AND schema_name NOT LIKE 'pg\_%'
 	AND schema_name NOT IN ('public', 'information_schema')`
 
-	if c.Owner != "" {
-		//query += " AND schema_owner = '" + c.Owner + "'"
-	}
-
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -173,8 +178,8 @@ func getAllSchemas(db *sql.DB, c *Config) ([]string, error) {
 
 // returns a map of table names in the schema to be used later for
 // determining which tables have their audit triggers enabled
-func getAllTables(db *sql.DB, c *Config, schemas []string) (map[string]bool, error) {
-	allTables := make(map[string]bool)
+func getAllTables(db *sql.DB, c *Config, schemas []string) (map[string]tableSettings, error) {
+	allTables := make(map[string]tableSettings)
 	for _, schema := range schemas {
 		tables, err := tablesForSchema(db, c, schema)
 		if err != nil {
@@ -183,7 +188,10 @@ func getAllTables(db *sql.DB, c *Config, schemas []string) (map[string]bool, err
 
 		for _, table := range tables {
 			schemaTable := schema + "." + table
-			allTables[schemaTable] = true
+			allTables[schemaTable] = tableSettings{
+				enableTable:   true,
+				enableTrigger: true,
+			}
 		}
 	}
 
@@ -224,25 +232,56 @@ func tablesForSchema(db *sql.DB, c *Config, schema string) ([]string, error) {
 	return tables, nil
 }
 
+func filterSchemas(schemas []string, c *Config) []string {
+	var filteredSchemas []string
+	for _, schema := range schemas {
+		if isIncludedSchema(schema, c) {
+			if !isExcludedSchema(schema, c) {
+				filteredSchemas = append(filteredSchemas, schema)
+			}
+		}
+	}
+	return filteredSchemas
+}
+
 // turn off auditting on specific schemas based on config
-func filterSchemas(tables map[string]bool, c *Config) map[string]bool {
-	for _, schema := range c.ExcludedSchemas {
-		for table := range tables {
-			if strings.HasPrefix(table, schema) {
-				tables[table] = false
+func filterTableSchemas(tables map[string]tableSettings, c *Config) map[string]tableSettings {
+	for table := range tables {
+		if isExcludedSchema(table, c) {
+			tables[table] = tableSettings{
+				enableTable:   false,
+				enableTrigger: false,
 			}
 		}
 	}
 
 	return tables
+}
+
+func isExcludedSchema(table string, c *Config) bool {
+	for _, schema := range c.ExcludedSchemas {
+		if strings.HasPrefix(table, schema) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // turn off auditting on specific tables based on config
-func filterTables(tables map[string]bool, c *Config) map[string]bool {
-	for _, xTable := range c.ExcludedTables {
-		for table := range tables {
-			if xTable == table {
-				tables[table] = false
+func filterTables(tables map[string]tableSettings, c *Config) map[string]tableSettings {
+	for table := range tables {
+		if !isIncludedTable(table, c) {
+			tables[table] = tableSettings{
+				enableTable:   false,
+				enableTrigger: false,
+			}
+		}
+
+		if isExcludedTable(table, c) {
+			tables[table] = tableSettings{
+				enableTable:   false,
+				enableTrigger: false,
 			}
 		}
 	}
@@ -250,22 +289,64 @@ func filterTables(tables map[string]bool, c *Config) map[string]bool {
 	return tables
 }
 
-// loops over each table in the db and sets up auditting for that table
-func setAuditing(tables map[string]bool, c *Config, db *sql.DB) error {
-	for tbl, trigger := range tables {
-		schemaTable := strings.Split(tbl, ".")
-		schema := schemaTable[0]
-		table := schemaTable[1]
+func isIncludedSchema(table string, c *Config) bool {
+	if len(c.IncludedTables) == 0 {
+		return true
+	}
 
-		if c.ViewsOnly {
-			err := auditViewsOnly(schema, table, trigger, c, db)
-			if err != nil {
-				return err
+	for _, t := range c.IncludedTables {
+		if idx := strings.IndexByte(t, '.'); idx >= 0 {
+			if table == t[:idx] {
+				return true
 			}
-		} else {
-			err := audit(schema, table, trigger, c, db)
-			if err != nil {
-				return err
+		}
+	}
+
+	return false
+}
+
+func isIncludedTable(table string, c *Config) bool {
+	if len(c.IncludedTables) == 0 {
+		return true
+	}
+
+	for _, t := range c.IncludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isExcludedTable(table string, c *Config) bool {
+	for _, t := range c.ExcludedTables {
+		if table == t {
+			return true
+		}
+	}
+
+	return false
+}
+
+// loops over each table in the db and sets up auditting for that table
+func setAuditing(tables map[string]tableSettings, c *Config, db *sql.DB) error {
+	for tbl, tableSettings := range tables {
+		if tableSettings.enableTable {
+			schemaTable := strings.Split(tbl, ".")
+			schema := schemaTable[0]
+			table := schemaTable[1]
+
+			if c.ViewsOnly {
+				err := auditViewsOnly(schema, table, tableSettings.enableTrigger, c, db)
+				if err != nil {
+					return err
+				}
+			} else {
+				err := audit(schema, table, tableSettings.enableTrigger, c, db)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

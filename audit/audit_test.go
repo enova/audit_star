@@ -79,8 +79,8 @@ func TestTableExclusions(t *testing.T) {
 
 	// the above query counted how many triggers are enabled for teststar.table_skipme
 	// which we disabled in the test config file  audit/audit.yml and we expect
-	// the total to be 1
-	expected := 1
+	// the total to be 0
+	expected := 0
 	assert.Equal(t, expected, disabledCount)
 }
 
@@ -107,7 +107,7 @@ func TestSchemaExclusions(t *testing.T) {
 	// the above query counted how many triggers are enabled for schema_skipme.table_skipme2
 	// which we disabled in the test config file audit/audit.yml and we expect
 	// the total to be 1
-	expected := 1
+	expected := 0
 	assert.Equal(t, expected, disabledCount)
 }
 
@@ -1114,6 +1114,90 @@ func TestLogParsedtime(t *testing.T) {
 	// assertion
 	c := column{}
 	scanErr := row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
+}
+
+func TestIncludedTables(t *testing.T) {
+	// arrangement
+	var config Config
+	config.IncludedTables = append(config.IncludedTables, "teststar_2.table2")
+	ParseFlags(&config)
+	getConfig(&config)
+
+	// Open DB
+	db := setupDB(&config)
+	defer db.Close()
+
+	errRun := RunAll(db, &config)
+	assert.NoError(t, errRun)
+
+	tx, txErr := db.Begin()
+	assert.NoError(t, txErr)
+
+	defer tx.Rollback()
+
+	// act
+	row := tx.QueryRow(`
+				SELECT EXISTS (
+					SELECT FROM information_schema.tables 
+					WHERE  table_schema = 'teststar_2_audit_raw'
+					AND    table_name   = 'table2_audit'
+					) AS exists`)
+
+	// assertion
+	c := column{}
+	scanErr := row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "true", c.exists.String)
+}
+
+func TestOnlyIncludedTables(t *testing.T) {
+	// arrangement
+	var config Config
+
+	config.IncludedTables = append(config.IncludedTables, "teststar.table1")
+
+	ParseFlags(&config)
+	getConfig(&config)
+
+	// Open DB
+	db := setupDB(&config)
+	defer db.Close()
+
+	errRun := RunAll(db, &config)
+	assert.NoError(t, errRun)
+
+	tx, txErr := db.Begin()
+	assert.NoError(t, txErr)
+
+	defer tx.Rollback()
+
+	// act
+	row := tx.QueryRow(`
+				SELECT EXISTS (
+					SELECT schema_name AS schema
+					FROM information_schema.schemata
+					WHERE schema_name = 'teststar_2_audit_raw'
+					) AS exists`)
+
+	// assertion
+	c := column{}
+	scanErr := row.Scan(&c.exists)
+	assert.NoError(t, scanErr)
+	assert.Equal(t, "false", c.exists.String)
+
+	// act
+	row = tx.QueryRow(`
+				SELECT EXISTS (
+					SELECT FROM information_schema.tables 
+					WHERE  table_schema = 'teststar_audit_raw'
+					AND    table_name   = 'table1_audit'
+					) AS exists`)
+
+	// assertion
+	c = column{}
+	scanErr = row.Scan(&c.exists)
 	assert.NoError(t, scanErr)
 	assert.Equal(t, "true", c.exists.String)
 }

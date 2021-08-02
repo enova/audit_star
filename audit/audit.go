@@ -33,6 +33,7 @@ type Config struct {
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
 	ViewsOnly       bool     `yaml:"views_only"`
+	Grantee         string   `yaml:"grantee"`
 	JSONType        string
 }
 
@@ -138,6 +139,13 @@ func RunAll(db *sql.DB, config *Config) error {
 	if err != nil {
 		return err
 	}
+
+	err = grantUsageOnSchemas(db, config, filteredScehmas)
+	if err != nil {
+		return err
+	}
+
+	log.Println("finished granting usage on schemas")
 
 	// calls all of the code which sets up all of the auditing dbs and triggers
 	err = setAuditing(filteredTables, config, db)
@@ -383,6 +391,14 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 		return err
 	}
 
+	tablesToGrant := []string{
+		"\"" + auditSchema + "\".\"" + table + "_audit\"",
+	}
+	err = grantSelectOnTable(db, c, tablesToGrant)
+	if err != nil {
+		return err
+	}
+
 	err = createAuditIndex(auditSchema, table, db)
 	if err != nil {
 		return err
@@ -403,6 +419,11 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 		return err
 	}
 
+	err = grantUsageOnSchemas(db, c, []string{schema})
+	if err != nil {
+		return err
+	}
+
 	tableCols, err := tableColumns(schema, table, db)
 	if err != nil {
 		return err
@@ -410,17 +431,17 @@ func audit(schema, table string, trigger bool, c *Config, db *sql.DB) error {
 
 	primaryKeyCol := getPrimaryKeyCol(tableCols)
 
-	err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditDeltaView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
 
-	err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditSnapshotView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
 
-	err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditCompareView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
@@ -442,17 +463,17 @@ func auditViewsOnly(schema, table string, trigger bool, c *Config, db *sql.DB) e
 
 	primaryKeyCol := getPrimaryKeyCol(tableCols)
 
-	err = createAuditDeltaView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditDeltaView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
 
-	err = createAuditSnapshotView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditSnapshotView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
 
-	err = createAuditCompareView(schema, table, tableCols, primaryKeyCol, db)
+	err = createAuditCompareView(schema, table, c.Grantee, tableCols, primaryKeyCol, db)
 	if err != nil {
 		return err
 	}
@@ -628,6 +649,33 @@ func createRawAuditSchemas(db *sql.DB, c *Config, schemas []string) error {
 			return err
 		}
 		log.Printf("%s_audit_raw created\n", schema)
+	}
+
+	return nil
+}
+
+func grantUsageOnSchemas(db *sql.DB, c *Config, schemas []string) error {
+	for _, schema := range schemas {
+		query := `GRANT USAGE ON SCHEMA "%s_audit_raw" TO %s;`
+		_, err := db.Exec(fmt.Sprintf(query, schema, c.Grantee))
+		if err != nil {
+			return err
+		}
+		log.Printf("granted usage on schema %s_audit_raw to %s\n", schema, c.Grantee)
+	}
+
+	return nil
+}
+
+func grantSelectOnTable(db *sql.DB, c *Config, tables []string) error {
+	for _, table := range tables {
+		query := `GRANT SELECT ON TABLE %s TO %s;`
+		printQueryIfDebug(fmt.Sprintf(query, table, c.Grantee))
+		_, err := db.Exec(fmt.Sprintf(query, table, c.Grantee))
+		if err != nil {
+			return err
+		}
+		log.Printf("granted select on table to %s\n", c.Grantee)
 	}
 
 	return nil
@@ -937,7 +985,7 @@ func createAuditTrigger(schema, table string, enabled bool, db *sql.DB) error {
 }
 
 // creates a view to aid in querying the db for what has changed
-func createAuditDeltaView(schema, table string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
+func createAuditDeltaView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
 	query := `BEGIN;
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_delta";
 		CREATE VIEW "{{.schema}}_audit"."{{.table}}_audit_delta" AS
@@ -949,8 +997,9 @@ func createAuditDeltaView(schema, table string, tableCols []map[string]string, p
 						"{{.table}}_audit".changed_by AS audited_change_agent,`
 
 	data := map[string]interface{}{
-		"schema": schema,
-		"table":  table,
+		"schema":  schema,
+		"table":   table,
+		"grantee": grantee,
 	}
 
 	query = mustParseQuery(query, data)
@@ -1000,7 +1049,11 @@ func createAuditDeltaView(schema, table string, tableCols []map[string]string, p
 		data["pkcColName"] = primaryKeyCol["colName"]
 	}
 
-	q += "; COMMIT;"
+	if grantee != "" {
+		q += "; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_delta\" TO " + grantee + "; COMMIT;"
+	} else {
+		q += "; COMMIT;"
+	}
 
 	query += mustParseQuery(q, data)
 
@@ -1096,7 +1149,7 @@ func getPrimaryKeyCol(tableCols []map[string]string) map[string]string {
 }
 
 // creates an audit snapshot view to aid in querying for changes
-func createAuditSnapshotView(schema, table string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
+func createAuditSnapshotView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
 	q := `BEGIN;
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_snapshot";
 		CREATE VIEW "{{.schema}}_audit"."{{.table}}_audit_snapshot" AS
@@ -1108,8 +1161,9 @@ func createAuditSnapshotView(schema, table string, tableCols []map[string]string
 						"{{.table}}_audit".changed_by AS audited_change_agent,`
 
 	data := map[string]interface{}{
-		"schema": schema,
-		"table":  table,
+		"schema":  schema,
+		"table":   table,
+		"grantee": grantee,
 	}
 
 	query := mustParseQuery(q, data)
@@ -1166,7 +1220,11 @@ func createAuditSnapshotView(schema, table string, tableCols []map[string]string
 		query += mustParseQuery(q, data)
 	}
 
-	query += "; COMMIT;"
+	if grantee != "" {
+		q += "; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_snapshot\" TO " + grantee + "; COMMIT;"
+	} else {
+		q += "; COMMIT;"
+	}
 
 	_, err := db.Exec(query)
 	if err != nil {
@@ -1178,7 +1236,7 @@ func createAuditSnapshotView(schema, table string, tableCols []map[string]string
 }
 
 // creates a compare view to aid in querying for changes
-func createAuditCompareView(schema, table string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
+func createAuditCompareView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
 	q := `BEGIN;
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit";
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_compare";
@@ -1191,8 +1249,9 @@ func createAuditCompareView(schema, table string, tableCols []map[string]string,
 						"{{.table}}_audit".changed_by AS audited_change_agent,`
 
 	data := map[string]interface{}{
-		"schema": schema,
-		"table":  table,
+		"schema":  schema,
+		"table":   table,
+		"grantee": grantee,
 	}
 
 	query := mustParseQuery(q, data)
@@ -1263,8 +1322,11 @@ func createAuditCompareView(schema, table string, tableCols []map[string]string,
 		query += mustParseQuery(q, data)
 	}
 
-	query += "; COMMIT;"
-
+	if grantee != "" {
+		query += mustParseQuery("; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_compare\" TO "+grantee+"; COMMIT;", data)
+	} else {
+		query += "; COMMIT;"
+	}
 	_, err := db.Exec(query)
 	if err != nil {
 		return err

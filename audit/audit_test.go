@@ -1202,6 +1202,30 @@ func TestOnlyIncludedTables(t *testing.T) {
 	assert.Equal(t, "true", c.exists.String)
 }
 
+func TestGrantee(t *testing.T) {
+	// arrangement
+	var config Config
+
+	config.Grantee = "audit_data_role"
+
+	ParseFlags(&config)
+	getConfig(&config)
+
+	// Open DB
+	db := setupDB(&config)
+	defer db.Close()
+
+	db.Exec("CREATE ROLE audit_data_role;")
+
+	errRun := RunAll(db, &config)
+	assert.NoError(t, errRun)
+
+	tx, txErr := db.Begin()
+	assert.NoError(t, txErr)
+
+	defer tx.Rollback()
+}
+
 func TestAuditTablesDefaultOwner(t *testing.T) {
 	// arrangement
 	tx, txErr := db.Begin()

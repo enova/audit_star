@@ -44,6 +44,8 @@ type tableSettings struct {
 
 var cfgPath = flag.String("cfg", "audit.yml", "Path to config file used by audit_star.")
 
+var errorCounter int
+
 // ParseFlags parses command line flags for configration from command line input
 func ParseFlags(c *Config) {
 	flag.Parse()
@@ -153,7 +155,12 @@ func RunAll(db *sql.DB, config *Config) error {
 		return err
 	}
 
-	log.Println("auditing setup completed without errors")
+	if errorCounter == 0 {
+		log.Println("auditing setup completed without errors")
+	} else {
+		log.Println(fmt.Sprintf("auditing setup completed with %d errors", errorCounter))
+	}
+
 	return nil
 }
 
@@ -992,7 +999,7 @@ func createAuditTrigger(schema, table string, enabled bool, db *sql.DB) error {
 
 // creates a view to aid in querying the db for what has changed
 func createAuditDeltaView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
-	query := `BEGIN;
+	query := `
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_delta";
 		CREATE VIEW "{{.schema}}_audit"."{{.table}}_audit_delta" AS
 		SELECT "{{.table}}_audit_id",
@@ -1056,16 +1063,29 @@ func createAuditDeltaView(schema, table, grantee string, tableCols []map[string]
 	}
 
 	if grantee != "" {
-		q += "; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_delta\" TO " + grantee + "; COMMIT;"
+		q += "; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_delta\" TO " + grantee + "; "
 	} else {
-		q += "; COMMIT;"
+		q += "; "
 	}
 
 	query += mustParseQuery(q, data)
 
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		log.Println("error occurred while creating delta view: ", err)
+		errorCounter++
+		return nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("error committing delta view transaction: ", err)
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_delta\n", schema, table)
@@ -1190,7 +1210,7 @@ func getPrimaryKeyCol(tableCols []map[string]string) map[string]string {
 
 // creates an audit snapshot view to aid in querying for changes
 func createAuditSnapshotView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
-	q := `BEGIN;
+	q := `
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_snapshot";
 		CREATE VIEW "{{.schema}}_audit"."{{.table}}_audit_snapshot" AS
 		SELECT "{{.table}}_audit_id",
@@ -1261,14 +1281,27 @@ func createAuditSnapshotView(schema, table, grantee string, tableCols []map[stri
 	}
 
 	if grantee != "" {
-		q += "; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_snapshot\" TO " + grantee + "; COMMIT;"
+		query += mustParseQuery("; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_snapshot\" TO "+grantee+"; ", data)
 	} else {
-		q += "; COMMIT;"
+		query += "; "
 	}
 
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		log.Println("error occurred while creating snapshot view: ", err)
+		errorCounter++
+		return nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("error committing delta view transaction: ", err)
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_snapshot\n", schema, table)
@@ -1277,7 +1310,7 @@ func createAuditSnapshotView(schema, table, grantee string, tableCols []map[stri
 
 // creates a compare view to aid in querying for changes
 func createAuditCompareView(schema, table, grantee string, tableCols []map[string]string, primaryKeyCol map[string]string, db *sql.DB) error {
-	q := `BEGIN;
+	q := `
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit";
 		DROP VIEW IF EXISTS "{{.schema}}_audit"."{{.table}}_audit_compare";
 		CREATE VIEW "{{.schema}}_audit"."{{.table}}_audit_compare" AS
@@ -1363,13 +1396,26 @@ func createAuditCompareView(schema, table, grantee string, tableCols []map[strin
 	}
 
 	if grantee != "" {
-		query += mustParseQuery("; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_compare\" TO "+grantee+"; COMMIT;", data)
+		query += mustParseQuery("; GRANT SELECT ON \"{{.schema}}_audit\".\"{{.table}}_audit_compare\" TO "+grantee+"; ", data)
 	} else {
-		query += "; COMMIT;"
+		query += "; "
 	}
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		log.Println("error occurred while creating compare view: ", err)
+		errorCounter++
+		return nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("error committing delta view transaction: ", err)
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_compare\n", schema, table)

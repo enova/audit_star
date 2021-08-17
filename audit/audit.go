@@ -1057,9 +1057,15 @@ func createAuditDeltaView(schema, table, grantee string, tableCols []map[string]
 
 	query += mustParseQuery(q, data)
 
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_delta\n", schema, table)
@@ -1226,9 +1232,15 @@ func createAuditSnapshotView(schema, table, grantee string, tableCols []map[stri
 		q += "; COMMIT;"
 	}
 
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_snapshot\n", schema, table)
@@ -1327,9 +1339,15 @@ func createAuditCompareView(schema, table, grantee string, tableCols []map[strin
 	} else {
 		query += "; COMMIT;"
 	}
-	_, err := db.Exec(query)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		return txErr
+	}
+
+	_, err := tx.Exec(query)
 	if err != nil {
-		return err
+		tx.Rollback()
+		return nil
 	}
 
 	log.Printf("created view %s_audit.%s_audit_compare\n", schema, table)

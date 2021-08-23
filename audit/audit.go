@@ -1102,21 +1102,27 @@ func createViewAuditSchema(schema string, db *sql.DB) error {
 // returns a map containing the column name, data type and primary key for
 // each column of a given table
 func tableColumns(schema, table string, db *sql.DB) ([]map[string]string, error) {
+	data := map[string]interface{}{
+		"schema": schema,
+		"table":  table,
+	}
+
 	query := `SELECT DISTINCT ON(attname)
 						attname AS column_name,
 						format_type(atttypid, atttypmod) AS data_type,
-						COALESCE(indisprimary, FALSE) AS primary_key
+						coalesce((select format($$'%s'$$, a.attname) 
+						from pg_attribute a
+						join pg_index i on a.attrelid = i.indexrelid
+						join pg_class c on i.indrelid = c.oid
+						where c.oid = '{{.schema}}.{{.table}}'::regclass
+						and i.indisprimary
+						and i.indnkeyatts = 1), '') as primary_key
 		FROM pg_attribute
 		LEFT JOIN pg_index ON pg_index.indrelid = pg_attribute.attrelid AND pg_attribute.attnum = ANY(pg_index.indkey)
 		WHERE pg_attribute.attnum > 0
 		AND NOT pg_attribute.attisdropped
 		AND pg_attribute.attrelid = '{{.schema}}.{{.table}}'::regclass::oid
 		ORDER BY attname, attnum`
-
-	data := map[string]interface{}{
-		"schema": schema,
-		"table":  table,
-	}
 
 	rows, err := db.Query(mustParseQuery(query, data))
 	if err != nil {
@@ -1129,6 +1135,12 @@ func tableColumns(schema, table string, db *sql.DB) ([]map[string]string, error)
 		err := rows.Scan(&colName, &dataType, &primaryKey)
 		if err != nil {
 			return nil, err
+		}
+
+		// primaryKey will be blank if table does nto have exactly 1 primary key.
+		// skip the table if that's the case
+		if primaryKey == "" {
+			continue
 		}
 
 		column := make(map[string]string)

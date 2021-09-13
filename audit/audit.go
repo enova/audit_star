@@ -344,16 +344,22 @@ func setAuditing(tables map[string]tableSettings, c *Config, db *sql.DB) error {
 			schemaTable := strings.Split(tbl, ".")
 			schema := schemaTable[0]
 			table := schemaTable[1]
+			validPrimaryKey, err := hasValidPrimaryKey(schema, table, db)
+			if err != nil {
+				return err
+			}
 
-			if c.ViewsOnly {
-				err := auditViewsOnly(schema, table, tableSettings.enableTrigger, c, db)
-				if err != nil {
-					return err
-				}
-			} else {
-				err := audit(schema, table, tableSettings.enableTrigger, c, db)
-				if err != nil {
-					return err
+			if validPrimaryKey {
+				if c.ViewsOnly {
+					err := auditViewsOnly(schema, table, tableSettings.enableTrigger, c, db)
+					if err != nil {
+						return err
+					}
+				} else {
+					err := audit(schema, table, tableSettings.enableTrigger, c, db)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -1091,6 +1097,40 @@ func createViewAuditSchema(schema string, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// returns true if table has only 1 primary key, false if 0 or >1
+func hasValidPrimaryKey(schema, table string, db *sql.DB) (bool, error) {
+	query := `select coalesce((select format($$'%s'$$, a.attname)
+		from pg_attribute a
+		join pg_index i on a.attrelid = i.indexrelid
+		join pg_class c on i.indrelid = c.oid
+		where c.oid = '{{.schema}}.{{.table}}'::regclass
+		and i.indisprimary
+		and i.indnkeyatts = 1), '') as primary_key`
+	data := map[string]interface{}{
+		"schema": schema,
+		"table":  table,
+	}
+
+	rows, err := db.Query(mustParseQuery(query, data))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	var primaryKey string
+	for rows.Next() {
+		err := rows.Scan(&primaryKey)
+		if err != nil {
+			return false, err
+		}
+
+		if primaryKey == "" {
+			log.Printf("SKIPPED table %s.%s due to zero or multi-field PK\n", schema, table)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // returns a map containing the column name, data type and primary key for

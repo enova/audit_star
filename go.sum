@@ -1,7 +1,5 @@
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/enova/audit_star v0.0.0-20181210213002-f07d0d55f2c6 h1:Kzzo4hta9vrmfVFx5PLy9g/QqRP+Ka5YYUHhWzvdcHY=
-github.com/enova/audit_star v0.0.0-20181210213002-f07d0d55f2c6/go.mod h1:hvYJpDa/nrQUeJfD4K2NSd0E2bS69vpaXoi9w6TS2ZE=
 github.com/lib/pq v1.10.2 h1:AqzbZs4ZoCBp+GtejcpCpcxM3zlSMx29dXbUSeVtJb8=
 github.com/lib/pq v1.10.2/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

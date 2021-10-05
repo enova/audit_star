@@ -17,10 +17,15 @@ func main() {
 	var c audit.Config
 
 	// parse command-line flags
-	audit.ParseFlags(&c)
+	err := audit.ParseFlags(&c)
+	checkErr(err)
 
 	// read config from file
-	err := audit.GetConfig(&c)
+	err = audit.GetConfig(&c)
+	checkErr(err)
+
+	// override config file values with CLI flag values if specified
+	err = audit.ParseCLIOverrides(&c)
 	checkErr(err)
 
 	// connect to the DB

@@ -2,6 +2,7 @@ package audit
 
 import (
 	"database/sql"
+	"flag"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -1359,4 +1360,14 @@ func TestSchemaNotOwnedByConfigOwner(t *testing.T) {
 	scanErr := row.Scan(&c.exists)
 	assert.NoError(t, scanErr)
 	assert.Equal(t, "false", c.exists.String)
+}
+
+func TestCLITablenameOverride(t *testing.T) {
+	var config Config
+	table := "s.t"
+	flag.Set("table", table)
+	ParseFlags(&config)
+	ParseCLIOverrides(&config)
+	assert.Equal(t, config.IncludedTables, []string{table})
+	assert.True(t, isIncludedTable(table, &config))
 }

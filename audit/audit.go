@@ -28,7 +28,6 @@ type Config struct {
 	ExcludedTables  []string `yaml:"excluded_tables"`
 	ExcludedSchemas []string `yaml:"excluded_schemas"`
 	IncludedTables  []string `yaml:"included_tables"`
-	IncludedSchemas []string `yaml:"included_schemas"`
 	Security        string   `yaml:"security"`
 	LogClientQuery  bool     `yaml:"log_client_query"`
 	Owner           string   `yaml:"owner"`
@@ -43,13 +42,25 @@ type tableSettings struct {
 }
 
 var cfgPath = flag.String("cfg", "audit.yml", "Path to config file used by audit_star.")
+var selectedTable = flag.String("table", "", "A single fully-qualified table name to be provisioned for auditing.")
 
 var errorCounter int
 
 // ParseFlags parses command line flags for configration from command line input
-func ParseFlags(c *Config) {
+func ParseFlags(c *Config) error {
 	flag.Parse()
 	c.CfgPath = *cfgPath
+
+	return nil
+}
+
+func ParseTableName(tableName string) ([]string, error) {
+	tableParts := strings.Split(tableName, ".")
+	if len(tableParts) > 1 {
+		return tableParts, nil
+	}
+
+	return nil, fmt.Errorf("table should be specified in the following format: schemaname.tablename")
 }
 
 // GetConfig pulls config info from audit.yml and command line input
@@ -64,6 +75,17 @@ func GetConfig(c *Config) error {
 		return err
 	}
 
+	return nil
+}
+
+// ParseCLI Overrides parses CLI override flags
+func ParseCLIOverrides(c *Config) error {
+	// CLI overrides
+	if *selectedTable == "" {
+		return nil
+	}
+
+	c.IncludedTables = []string{*selectedTable}
 	return nil
 }
 

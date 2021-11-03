@@ -33,6 +33,8 @@ type Config struct {
 	Owner           string   `yaml:"owner"`
 	ViewsOnly       bool     `yaml:"views_only"`
 	Grantee         string   `yaml:"grantee"`
+	OwnerRole       string   `yaml:"set_role"`
+	LockTimeout     string   `yaml:"lock_timeout"`
 	JSONType        string
 }
 
@@ -105,6 +107,16 @@ func DBOpen(c *Config) (*sql.DB, error) {
 		return nil, err
 	}
 	log.Println("successfully connected to", c.DBName)
+
+	err = setOwnerRole(db, c)
+	if err != nil {
+		return nil, err
+	}
+
+	setLockTimeout(db, c)
+	if err != nil {
+		return nil, err
+	}
 
 	return db, nil
 }
@@ -183,6 +195,22 @@ func RunAll(db *sql.DB, config *Config) error {
 		log.Println(fmt.Sprintf("auditing setup completed with %d errors", errorCounter))
 	}
 
+	return nil
+}
+
+func setOwnerRole(db *sql.DB, c *Config) error {
+	if c.OwnerRole != "" {
+		_, err := db.Exec(fmt.Sprintf(`set role='%s'`, c.OwnerRole))
+		return err
+	}
+	return nil
+}
+
+func setLockTimeout(db *sql.DB, c *Config) error {
+	if c.LockTimeout != "" {
+		_, err := db.Exec(fmt.Sprintf(`set lock_timeout='%s'`, c.LockTimeout))
+		return err
+	}
 	return nil
 }
 

@@ -32,4 +32,4 @@ Contribution to improve this project in any way are always welcome. Steps:
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](http://opensource.org/licenses/MIT).
+The gem is available as open source under the terms of the [MIT License](LICENSE.txt).
